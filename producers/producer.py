@@ -39,7 +39,7 @@ def generate_fake_transactions():
         "currency": "USD",
         "merchant": fake.company(),
         "country": fake.country_code(),
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     }
 
 if __name__ == "__main__":
