@@ -29,13 +29,21 @@ def generate_fake_transactions():
     """
     Generate a fake transaction record
     """
+    rand = random.random()
+    if rand < 0.80:
+        amount = round(random.uniform(1.0, 100.0), 2)    # 80%: Small transactions
+    elif rand < 0.95:
+        amount = round(random.uniform(100.0, 500.0), 2)  # 15%: Medium transactions
+    else:
+        amount = round(random.uniform(500.0, 10000.0), 2) # 5%: Large transactions
+
     return {
         "transaction_id": fake.uuid4(),
         "bank_id": BANK_ID,
         "payment_system": fake.random_element(elements=("VISA", "MasterCard", "AMEX")),
         "card_number": fake.numerify(text="4###############"),
         "user_id": fake.random_int(USER_ID_MIN, USER_ID_MAX),
-        "amount": round(random.uniform(1.0, 1500.0), 2),
+        "amount": amount,
         "currency": "USD",
         "merchant": fake.company(),
         "country": fake.country_code(),
