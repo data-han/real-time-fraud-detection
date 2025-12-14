@@ -195,8 +195,10 @@ services:
       sh -c "
       echo 'Waiting for Flink to be ready...' &&
       sleep 60 &&
-      /opt/flink/bin/sql-client.sh -f /opt/flink/jobs/flink_sql_job.sql &&
-      echo 'Flink SQL job submitted successfully!'
+      echo 'Submitting Flink SQL job...' &&
+      /opt/flink/bin/sql-client.sh embedded -Drest.address=flink-jobmanager -Drest.port=8081 -f /opt/flink/jobs/flink_sql_job.sql &&
+      echo 'Flink SQL job submitted successfully!' &&
+      tail -f /dev/null
       "
   ################################################################################
   # PostgreSQL Database
