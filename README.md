@@ -6,18 +6,30 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
 
 ## 📊 Architecture Overview
 
-Producers (Bank A, Bank B) 
-   ↓
-Apache Kafka Cluster
-   ↓
-Apache Flink (consumer + processor)
-   ├── Archive: ALL transactions 
-   |-- --> PostgreSQL: transactions table (all historical data)
-   └── Stream: Fraud detected → Kafka (fraud-alerts topic)
-   ↓
-Streamlit dashboard 
++-------------------+      +-------------------+      +-------------------+      +-------------------+
+|   Producers       | ---> |   Kafka Cluster   | ---> |      Flink        | ---> |   PostgreSQL      |
+| (Bank A, Bank B)  |      | (3 Brokers, KRaft)|      | (Stream/Archive)  |      | (transactions)    |
++-------------------+      +-------------------+      +-------------------+      +-------------------+
+                                                           |
+                                                           v
+                                                +-------------------+
+                                                |   Kafka Topic     |
+                                                |  (fraud-alerts)   |
+                                                +-------------------+
+                                                           |
+                                                           v
+                                                +-------------------+
+                                                |    Streamlit      |
+                                                |    Dashboard      |
+                                                +-------------------+
 
-
+**Data Flow:**
+1. Producers (Bank A, Bank B) generate transactions and send them to the Kafka cluster.
+2. Kafka brokers store and replicate transaction streams.
+3. Flink consumes transactions from Kafka:
+   - Archives all transactions to PostgreSQL.
+   - Detects fraud and publishes alerts to the `fraud-alerts` Kafka topic.
+4. Streamlit dashboard consumes fraud alerts from Kafka and displays real-time analytics.
 
 ## 🏗️ System Components
 
@@ -50,29 +62,6 @@ Streamlit dashboard
 - 3-broker setup provides high availability and fault tolerance
 - Partitioning enables horizontal scaling for high-volume transaction processing
 
-
-c. Data flow
-You (Mac) → localhost:9092 → kafka-1:9092 (inside Docker)
-↓
-kafka-1 replicates to kafka-2:9092 and kafka-3:9092
-↓
-All 3 brokers report to kafka-controller:9093/9094/9095 for coordination
-
-z. Run Kafka
---> Start Docker
-`docker compose down -v && docker compose up -d`
---> Get into the container
-`docker exec -it kafka bash` 
---> Create topic - transactions
-single: `docker exec -it kafka opt/kafka/bin/kafka-topics.sh --create --topic transactions --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1`
-
-replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --create --topic transactions --bootstrap-server kafka-1:9092 --partitions 3 --replication-factor 3`
-
---> List topic
-replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka-1:9092`
-
----
-
 ### 2. **Transaction Producers**
 **Purpose**: Simulate real-world transaction generation from multiple banks
 
@@ -80,7 +69,8 @@ replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --list --boo
 - **Bank A Producer**: Generates 50 transactions/second (users 1000-4999)
 - **Bank B Producer**: Generates 30 transactions/second (users 5000-9999)
 
-**Transaction Data**:
+**Transaction Data Example**:
+```json
 {
   "transaction_id": "uuid",
   "bank_id": "BANK_A|BANK_B",
@@ -93,38 +83,58 @@ replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --list --boo
   "country": "ISO Country Code",
   "timestamp": "2025-12-16T10:30:45+00:00"
 }
-
+```
 
 **Rationale**:
 - Realistic transaction patterns for testing fraud detection rules
 - Configurable TPS allows load testing
 - Easily scalable to add more banks/payment channels
 
+---
 
+### 3. **Flink + PostgreSQL**
+- Flink jobs consume transactions from Kafka, archive to PostgreSQL, and detect fraud.
+- Fraud alerts are published to the `fraud-alerts` topic.
 
+---
 
+### 4. **Streamlit Dashboard**
+- Consumes fraud alerts from Kafka and displays real-time analytics and transaction metrics.
 
---> Consume message
-single: `docker exec -it kafka opt/kafka/bin/kafka-console-consumer.sh --topic transactions --bootstrap-server kafka:9092 --from-beginning`
+---
 
-replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-console-consumer.sh --topic transactions --bootstrap-server kafka-1:9092 --from-beginning`
+## 🚀 Quickstart
 
-2. Producer
---> dockerfile
-    `docker compose up -d --build app-producer-bank-a app-producer-bank-b`
-    `docker build -t rtfd-producer:local -f producers/Dockerfile .`
---> docker compose
+1. **Start Docker Compose**
+   ```sh
+   docker compose down -v && docker compose up -d
+   ```
 
---> can scale to add more producer - different banks, mobile payments etc. to make it more realistic
+2. **Create Topics (if needed)**
+   ```sh
+   docker exec -it kafka-1 /opt/kafka/bin/kafka-topics.sh --create --topic transactions --bootstrap-server localhost:9092 --partitions 3 --replication-factor 3
+   docker exec -it kafka-1 /opt/kafka/bin/kafka-topics.sh --create --topic fraud-alerts --bootstrap-server localhost:9092 --partitions 3 --replication-factor 3
+   ```
 
-3. Flink + Postgres
---> Dockerfile
-`docker compose up -d --build flink-jobmanager flink-taskmanager`
+3. **Start Producers**
+   ```sh
+   docker compose up -d --build app-producer-bank-a app-producer-bank-b
+   ```
 
+4. **Start Flink and PostgreSQL**
+   ```sh
+   docker compose up -d --build flink-jobmanager flink-taskmanager postgres
+   ```
 
-4. Grafana/ streamlit
+5. **Run Streamlit Dashboard**
+   ```sh
+   streamlit run dashboard/streamlit_app.py
+   ```
 
+---
 
+## 📝 Next Steps
 
-next steps
-for higher tps , can consider time-series db like influxdb, realtime analytics using clickhouse/ druiddb
+- For higher TPS, consider time-series DBs like InfluxDB.
+- For advanced analytics, explore ClickHouse or DruidDB.
+
