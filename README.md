@@ -1,38 +1,55 @@
-# real-time-fraud-detection
+# Real-Time Fraud Detection System
 
-# Architecture
+A scalable, distributed real-time fraud detection system built with Apache Kafka, Apache Flink, PostgreSQL, and Streamlit. The system processes transaction streams from multiple banks, applies fraud detection rules, and provides real-time monitoring through an interactive dashboard.
+
+---
+
+## 📊 Architecture Overview
+
 Producers (Bank A, Bank B) 
    ↓
-Kafka (transactions topic)
+Apache Kafka Cluster
    ↓
-Flink (consumer + processor)
+Apache Flink (consumer + processor)
    ├── Archive: ALL transactions 
    |-- --> PostgreSQL: transactions table (all historical data)
    └── Stream: Fraud detected → Kafka (fraud-alerts topic)
-         ↓
-   Alert Consumer (reads fraud-alerts)
    ↓
-Real-time dashboard 
+Streamlit dashboard 
 
 
 
-# Set-up
+## 🏗️ System Components
 
-1. Kafka
-KRaft architecture with 3 Kafka brokers and 1 controller
-Service breakdown:
+### 1. **Kafka Cluster (KRaft Mode)**
+**Purpose**: Distributed message broker for high-throughput transaction streaming
 
-a. kafka-1, kafka-2, kafka-3 — Kafka brokers (store data, serve clients)
-- Each listens on port 9092 inside its own isolated container
-- Exposed to the host on ports 9092, 9093, 9094 respectively
-- KAFKA_PROCESS_ROLES: broker — they only broker messages
-- Each has its own persistent volume (kafka_1_data, kafka_2_data, kafka_3_data)
+**Architecture**:
+- **3 Kafka Brokers** (`kafka-1`, `kafka-2`, `kafka-3`)
+  - Store and serve transaction data
+  - Provide fault tolerance through replication
+  - Each exposed on ports: 9092, 9093, 9094
+  - Each listens on port 9092 inside its own isolated container
+  - KAFKA_PROCESS_ROLES: broker — they only broker messages
+  - Each has its own persistent volume (kafka_1_data, kafka_2_data, kafka_3_data)
+  
+- **1 Kafka Controller** 
+  - Manages cluster metadata and leader elections
+  - Replaces ZooKeeper in KRaft mode
+  - Listens on ports 9093, 9094, 9095 inside its container (for broker communication)
+  - Exposed on port 19093, 19094, 19095
+  - KAFKA_PROCESS_ROLES: controller — only manages, doesn't broker
+  - Has its own volume (kafka_controller_data)
 
-b. kafka-controller — Kafka controller (manages cluster, leader election)
-- Listens on ports 9093, 9094, 9095 inside its container (for broker communication)
-- Exposed to the host on ports 19093, 19094, 19095
-- KAFKA_PROCESS_ROLES: controller — only manages, doesn't broker
-- Has its own volume (kafka_controller_data)
+**Topics**:
+- `transactions` (3 partitions, replication factor: 3) - Raw transaction stream
+- `fraud-alerts` (3 partitions, replication factor: 3) - Detected fraud events
+
+**Rationale**: 
+- KRaft mode eliminates ZooKeeper dependency, simplifying operations
+- 3-broker setup provides high availability and fault tolerance
+- Partitioning enables horizontal scaling for high-volume transaction processing
+
 
 c. Data flow
 You (Mac) → localhost:9092 → kafka-1:9092 (inside Docker)
@@ -54,10 +71,38 @@ replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --create --t
 --> List topic
 replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka-1:9092`
 
---> Produce message
-single: `docker exec -it kafka opt/kafka/bin/kafka-console-producer.sh --topic transactions --bootstrap-server kafka:9092`
+---
 
-replication: `docker exec -it kafka-1 opt/kafka/bin/kafka-console-producer.sh --topic transactions --bootstrap-server kafka-1:9092`
+### 2. **Transaction Producers**
+**Purpose**: Simulate real-world transaction generation from multiple banks
+
+**Components**:
+- **Bank A Producer**: Generates 50 transactions/second (users 1000-4999)
+- **Bank B Producer**: Generates 30 transactions/second (users 5000-9999)
+
+**Transaction Data**:
+{
+  "transaction_id": "uuid",
+  "bank_id": "BANK_A|BANK_B",
+  "payment_system": "VISA|MasterCard|AMEX",
+  "card_number": "4###############",
+  "user_id": 1000-9999,
+  "amount": 1.0-10000.0,
+  "currency": "USD",
+  "merchant": "Company Name",
+  "country": "ISO Country Code",
+  "timestamp": "2025-12-16T10:30:45+00:00"
+}
+
+
+**Rationale**:
+- Realistic transaction patterns for testing fraud detection rules
+- Configurable TPS allows load testing
+- Easily scalable to add more banks/payment channels
+
+
+
+
 
 --> Consume message
 single: `docker exec -it kafka opt/kafka/bin/kafka-console-consumer.sh --topic transactions --bootstrap-server kafka:9092 --from-beginning`
