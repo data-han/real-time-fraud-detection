@@ -6,22 +6,7 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
 
 ## 📊 Architecture Overview
 
-+-------------------+      +-------------------+      +-------------------+      +-------------------+
-|   Producers       | ---> |   Kafka Cluster   | ---> |      Flink        | ---> |   PostgreSQL      |
-| (Bank A, Bank B)  |      | (3 Brokers, KRaft)|      | (Stream/Archive)  |      | (transactions)    |
-+-------------------+      +-------------------+      +-------------------+      +-------------------+
-                                                           |
-                                                           v
-                                                +-------------------+
-                                                |   Kafka Topic     |
-                                                |  (fraud-alerts)   |
-                                                +-------------------+
-                                                           |
-                                                           v
-                                                +-------------------+
-                                                |    Streamlit      |
-                                                |    Dashboard      |
-                                                +-------------------+
+![System Architecture](Simplified_Arch.png)
 
 **Data Flow:**
 1. Producers (Bank A, Bank B) generate transactions and send them to the Kafka cluster.
