@@ -42,6 +42,15 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
 - `transactions` (3 partitions, replication factor: 3) - Raw transaction stream
 - `fraud-alerts` (3 partitions, replication factor: 3) - Detected fraud events
 
+**Messages**:
+- Messages in a single topic are distributed (spread) across its partitions using a partitioning strategy (default: hash of the message key modulo number of partitions; if no key → sticky/round-robin in modern Kafka).
+- A single message exists in exactly one partition (no duplication within the topic itself).
+
+- Each partition is replicated across multiple brokers (replication factor, typically 3).
+- One replica is the leader (handles all producer writes and consumer reads); the others are followers that replicate from the leader.
+- If the broker hosting the leader fails/dies, the Kafka controller (in KRaft mode) or controller broker (older ZooKeeper mode) automatically elects a new leader from the in-sync replicas (ISR) — i.e., one of the follower replicas that was fully caught up.
+- The new leader broker then takes over reads/writes for that partition, and clients (producers/consumers) are redirected via updated metadata.
+
 **Rationale**: 
 - KRaft mode eliminates ZooKeeper dependency, simplifying operations
 - 3-broker setup provides high availability and fault tolerance
