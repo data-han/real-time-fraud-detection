@@ -90,7 +90,7 @@ EXECUTE STATEMENT SET BEGIN
     FROM transactions;
 
     -- ============================================================================
-    -- Job 2: Fraud Detection - Rule 1: High-value transactions (amount > $1000)
+    -- Job 2: Fraud Detection - Rule 1: High-value transactions (amount > $5000)
     -- ============================================================================
     INSERT INTO fraud_alerts
     SELECT 

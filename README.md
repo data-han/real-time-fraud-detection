@@ -16,6 +16,8 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
    - Detects fraud and publishes alerts to the `fraud-alerts` Kafka topic.
 4. Streamlit dashboard consumes fraud alerts from Kafka and displays real-time analytics.
 
+![Streamlit app](Streamlit.png)
+
 ## 🏗️ System Components
 
 ### 1. **Kafka Cluster (KRaft Mode)**

@@ -6,36 +6,23 @@ import json
 from datetime import datetime, timedelta
 import plotly.express as px
 import plotly.graph_objects as go
-from threading import Thread
 import time
+import os
 
 # Page config
 st.set_page_config(page_title="Fraud Detection Dashboard", layout="wide", page_icon="🚨")
 
-# Postgres Database connection - Don't cache, create fresh each time
+# Database connection (no caching)
 def get_db_connection():
     return psycopg2.connect(
-        host="localhost",
-        port=5432,
-        database="transactions_db",
-        user="transactions_user",
-        password="transactions123"
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        database=os.getenv("POSTGRES_DB", "transactions_db"),
+        user=os.getenv("POSTGRES_USER", "transactions_user"),
+        password=os.getenv("POSTGRES_PASSWORD", "transactions123")
     )
 
-# Kafka consumer for fraud alerts - stays cached during session
-@st.cache_resource
-def get_fraud_consumer():
-    return KafkaConsumer(
-        'fraud-alerts',
-        bootstrap_servers='localhost:9092',
-        value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-        auto_offset_reset='latest',
-        enable_auto_commit=True,
-        group_id='streamlit-dashboard',
-        consumer_timeout_ms=1000  # Don't block forever
-    )
-
-# Query functions - Create and close connection each time
+# Query functions
 def query_db(query):
     conn = get_db_connection()
     try:
@@ -104,6 +91,31 @@ def get_transactions_over_time():
     """
     return query_db(query)
 
+# Fraud alerts from Kafka
+def fetch_fraud_alerts(max_alerts=50):
+    try:
+        consumer = KafkaConsumer(
+            'fraud-alerts',
+            bootstrap_servers=os.getenv("KAFKA_BROKER", "localhost:19092,localhost:29092,localhost:39092"),
+            value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+            auto_offset_reset='earliest',
+            enable_auto_commit=False,
+            group_id=None,  # No group = no offset tracking, always reads from earliest
+            consumer_timeout_ms=10000  # 10s timeout for consumer to connect and fetch
+        )
+        alerts = []
+        for msg in consumer:
+            alert = msg.value
+            if isinstance(alert, dict):
+                alerts.append(alert)
+            if len(alerts) >= max_alerts:
+                break
+        consumer.close()
+        return alerts
+    except Exception as e:
+        st.error(f"Kafka error: {e}")
+        return []
+
 # Main dashboard
 st.title("🚨 Real-Time Fraud Detection Dashboard")
 
@@ -111,24 +123,19 @@ st.title("🚨 Real-Time Fraud Detection Dashboard")
 tab1, tab2, tab3 = st.tabs(["📊 Overview", "🔍 Fraud Alerts", "📈 Analytics"])
 
 # Tab 1: Overview
-# Tab 1: Overview
 with tab1:
     st.header("Transaction Overview (Last Hour)")
-    
-    # Metrics
     stats = get_transaction_stats()
     if not stats.empty:
         col1, col2, col3, col4, col5 = st.columns(5)
-        
         with col1:
             st.metric("Total Transactions", f"{stats['total_transactions'][0] or 0:,}")
         with col2:
-            # Use smaller font in the label, larger number
             total_amount = stats['total_amount'][0] or 0
             st.metric(
                 label="Total Amount",
-                value=f"${total_amount/1000:.1f}K",  # Show in thousands
-                help=f"Exact: ${total_amount:,.2f}"  # Hover for exact value
+                value=f"${total_amount/1000:.1f}K",
+                help=f"Exact: ${total_amount:,.2f}"
             )
         with col3:
             avg_amount = stats['avg_amount'][0] or 0
@@ -137,8 +144,6 @@ with tab1:
             st.metric("Unique Users", f"{stats['unique_users'][0] or 0:,}")
         with col5:
             st.metric("Countries", f"{stats['unique_countries'][0] or 0:,}")
-    
-    # Transactions over time
     st.subheader("Transactions Per Minute")
     time_data = get_transactions_over_time()
     if not time_data.empty:
@@ -146,10 +151,7 @@ with tab1:
                      title='Transaction Volume Over Time',
                      labels={'count': 'Transaction Count', 'minute': 'Time'})
         st.plotly_chart(fig, use_container_width=True)
-    
-    # Bank comparison
     col1, col2 = st.columns(2)
-    
     with col1:
         st.subheader("Transactions by Bank")
         bank_data = get_transactions_by_bank()
@@ -157,7 +159,6 @@ with tab1:
             fig = px.pie(bank_data, values='transaction_count', names='bank_id',
                         title='Transaction Distribution')
             st.plotly_chart(fig, use_container_width=True)
-    
     with col2:
         st.subheader("Top 10 Merchants")
         merchant_data = get_top_merchants()
@@ -169,73 +170,38 @@ with tab1:
 # Tab 2: Fraud Alerts
 with tab2:
     st.header("🚨 Live Fraud Alerts")
-    
-    # Button to refresh alerts
     if st.button("🔄 Refresh Alerts", key="refresh_fraud"):
-        with st.spinner("Connecting to Kafka and fetching alerts..."):
-            try:
-                # Create a fresh consumer that reads from beginning
-                consumer = KafkaConsumer(
-                    'fraud-alerts',
-                    bootstrap_servers='kafka-1:9092,kafka-2:9092,kafka-3:9092',
-                    value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                    auto_offset_reset='earliest',  # Read all messages from beginning
-                    enable_auto_commit=False,
-                    group_id=f'streamlit-{int(time.time())}',  # Unique group each time
-                    consumer_timeout_ms=5000
-                )
-                
-                alerts = []
-                
-                # Collect messages (with timeout)
-                for message in consumer:
-                    alerts.append(message.value)
-                    if len(alerts) >= 50:  # Limit to last 50
-                        break
-                
-                consumer.close()
-                
-                if alerts:
-                    st.success(f"📊 Found {len(alerts)} fraud alerts!")
-                    # Display alerts in reverse chronological order
-                    for alert in reversed(alerts[-10:]):  # Show last 10
-                        with st.expander(f"⚠️ {alert['reason']} - User {alert['user_id']}", expanded=True):
-                            col1, col2 = st.columns(2)
-                            
-                            with col1:
-                                st.write(f"**Transaction ID:** {alert['transaction_id']}")
-                                st.write(f"**User ID:** {alert['user_id']}")
-                                st.write(f"**Amount:** ${alert['amount']} {alert['currency']}")
-                                st.write(f"**Bank:** {alert['bank_id']}")
-                                st.write(f"**Payment System:** {alert['payment_system']}")
-                            
-                            with col2:
-                                st.write(f"**Card:** {alert['card_number']}")
-                                st.write(f"**Merchant:** {alert['merchant']}")
-                                st.write(f"**Country:** {alert['country']}")
-                                st.write(f"**Timestamp:** {alert['timestamp']}")
-                                st.write(f"**Reason:** {alert['reason']}")
-                else:
-                    st.warning("No fraud alerts found in Kafka topic. Make sure Flink fraud detection jobs are running.")
-                    st.info("Check: `docker exec -it kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka-1:9092 --topic fraud-alerts --from-beginning`")
-                    
-            except Exception as e:
-                st.error(f"❌ Error connecting to Kafka: {str(e)}")
-                st.info("Make sure Kafka is running: `docker ps | grep kafka`")
+        with st.spinner("Fetching fraud alerts from Kafka..."):
+            alerts = fetch_fraud_alerts()
+            if alerts:
+                st.success(f"Found {len(alerts)} fraud alerts.")
+                for alert in reversed(alerts[-10:]):
+                    st.markdown("---")
+                    cols = st.columns(2)
+                    with cols[0]:
+                        st.markdown(f"**Transaction ID:** {alert.get('transaction_id', '-')}")
+                        st.markdown(f"**User ID:** {alert.get('user_id', '-')}")
+                        st.markdown(f"**Amount:** ${alert.get('amount', '-')} {alert.get('currency', '')}")
+                        st.markdown(f"**Bank:** {alert.get('bank_id', '-')}")
+                        st.markdown(f"**Payment System:** {alert.get('payment_system', '-')}")
+                    with cols[1]:
+                        st.markdown(f"**Card:** {alert.get('card_number', '-')}")
+                        st.markdown(f"**Merchant:** {alert.get('merchant', '-')}")
+                        st.markdown(f"**Country:** {alert.get('country', '-')}")
+                        st.markdown(f"**Timestamp:** {alert.get('timestamp', '-')}")
+                        st.markdown(f"**Reason:** {alert.get('reason', '-')}")
+            else:
+                st.info("No fraud alerts found. Ensure Flink jobs are running and producing alerts.")
     else:
-        st.info("💡 Click 'Refresh Alerts' button above to load fraud detections from Kafka")
+        st.info("💡 Click 'Refresh Alerts' to load the latest fraud alerts from Kafka.")
 
 # Tab 3: Analytics
 with tab3:
     st.header("📈 Transaction Analytics")
-    
-    # Recent transactions table
     st.subheader("Recent Transactions")
     recent = get_recent_transactions(limit=50)
     if not recent.empty:
         st.dataframe(recent, use_container_width=True)
-    
-    # Amount distribution
     st.subheader("Transaction Amount Distribution")
     if not recent.empty:
         fig = px.histogram(recent, x='amount', nbins=50,
@@ -246,7 +212,6 @@ with tab3:
 # Auto-refresh option
 st.sidebar.header("Settings")
 auto_refresh = st.sidebar.checkbox("Auto-refresh (every 10s)")
-
 if auto_refresh:
     st.sidebar.info("Dashboard will auto-refresh every 10 seconds")
     time.sleep(10)

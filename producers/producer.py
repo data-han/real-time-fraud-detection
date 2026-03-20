@@ -15,7 +15,7 @@ TOPIC = os.getenv("TOPIC", "transactions")
 producer = KafkaProducer(
     bootstrap_servers=BROKER,
     value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-    acks="all"
+    acks="all" # Ensure all replicas acknowledge the message for durability, safest but with higher latency, can be set to 1 for faster but less durable, or 0 for fire-and-forget
 )
 
 # Environment Variables
