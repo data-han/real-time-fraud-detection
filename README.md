@@ -14,7 +14,7 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
 3. Flink consumes transactions from Kafka:
    - Archives all transactions to PostgreSQL.
    - Detects fraud and publishes alerts to the `fraud-alerts` Kafka topic.
-4. Streamlit dashboard consumes fraud alerts from Kafka and displays real-time analytics.
+4. Streamlit dashboard consumes fraud alerts from Kafka and queries PostgreSQL for transaction history, displaying real-time analytics.
 
 ![Streamlit app](Streamlit.png)
 
@@ -27,11 +27,11 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
 - **3 Kafka Brokers** (`kafka-1`, `kafka-2`, `kafka-3`)
   - Store and serve transaction data - brokers work together to ensure data is available, durable and distributed
   - Provide fault tolerance through replication
-  - Each exposed on ports: 9092, 9093, 9094
-  - Each listens on port 9092 inside its own isolated container
+  - Each listens on port 9092 inside its own isolated container (INTERNAL listener)
+  - Each also has an EXTERNAL listener for host access: kafka-1 on 19092, kafka-2 on 29092, kafka-3 on 39092
+  - Host port mappings: 9092→9092, 9093→9092, 9094→9092 (INTERNAL); 19092, 29092, 39092 (EXTERNAL)
   - KAFKA_PROCESS_ROLES: broker — they only broker messages
   - Each has its own persistent volume (kafka_1_data, kafka_2_data, kafka_3_data)
-  - Think of Kafka Broker as databases (DEV/TEST/PROD) -> Partitions as Schemas and Topics as Tables where these are replicated across Brokers
   - Replication is generally 3 -> 3 copies of partitions are found in different brokers (e.g. 3 on 3 brokers)
   - Always have 1 Leader and rest follower. Leader read/write, follower back ups data from Leader
   
@@ -41,8 +41,8 @@ A scalable, distributed real-time fraud detection system built with Apache Kafka
   - KRaft stores cluster metadata like cluster membership, controller election, topics configuration, access control lists etc.in a single partition Kafka topic called `__cluster_metadata`
    - KRaft uses this to synchronise cluster state changes across controller and broker nodes
    - Active controller (leader of brokers) writes metadata change records to `__cluster_metadata`, controllers (followers) replicate topic events
-  - Listens on ports 9093, 9094, 9095 inside its container (for broker communication)
-  - Exposed on port 19093, 19094, 19095
+  - Listens on port 9093 inside its container (for broker communication)
+  - Exposed on port 19093
   - KAFKA_PROCESS_ROLES: controller — only manages, doesn't broker
   - Has its own volume (kafka_controller_data)
 
@@ -130,7 +130,7 @@ NOTE: This combination of producer idempotence and consumer offset management en
   "currency": "USD",
   "merchant": "Company Name",
   "country": "ISO Country Code",
-  "timestamp": "2025-12-16T10:30:45+00:00"
+  "timestamp": "2025-12-16T10:30:45"
 }
 ```
 
@@ -142,7 +142,7 @@ NOTE: This combination of producer idempotence and consumer offset management en
 ---
 ### 3. **Apache Flink**
 It processes data continuously as it arrives (true streaming, not micro-batching), with in-memory speed, high throughput, low latency, and strong correctness guarantees.
-- Offers 3 APIs, Data Stream API (real-time stream processing), Data Set API (batch processing, large dataset), Flink SQL (write SQL to process both real-time and batch) where Flink SQL allows built-in function, create tables and run queries (time window, joins, aggregation)
+- Offers 3 APIs: DataStream API (real-time stream processing), DataSet API (batch processing — deprecated since Flink 1.12, replaced by Table API for unified batch/streaming), and Flink SQL (write SQL to process both real-time and batch) where Flink SQL allows built-in functions, create tables and run queries (time window, joins, aggregation)
 - Data is processed in parallel across multiple machines
 
 Components
@@ -160,7 +160,7 @@ Components
 ---
 
 ### 5. **Streamlit Dashboard**
-- Consumes fraud alerts from Kafka and displays real-time analytics and transaction metrics.
+- Consumes fraud alerts from Kafka and queries transaction history from PostgreSQL, displaying real-time analytics and transaction metrics.
 
 ---
 
